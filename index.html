@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>条码生成与播放</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 720px;
+            margin: 30px auto;
+            padding: 20px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 10px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 8px 14px;
+            font-size: 14px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #player-container {
+            margin-top: 30px;
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            min-height: 180px;
+        }
+
+        #barcode-svg {
+            max-width: 100%;
+        }
+
+        .player-info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .player-buttons {
+            margin-top: 15px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        #playBtn {
+            background-color: #28a745;
+        }
+
+        #playBtn.playing {
+            background-color: #dc3545;
+        }
+
+        #downloadBtn {
+            background-color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+
+<h2>条码生成与播放</h2>
+
+<div>
+    <label>条码内容（每行一个）：</label>
+    <textarea id="batchInput" placeholder="例如：&#10;SN20260507001&#10;SN20260507002&#10;SN20260507003"></textarea>
+</div>
+
+<div class="controls">
+    <label>条码格式：</label>
+    <select id="barcodeFormat">
+        <option value="CODE128">CODE128</option>
+        <option value="EAN13">EAN-13</option>
+        <option value="UPC">UPC</option>
+        <option value="CODE39">CODE39</option>
+    </select>
+
+    <label>播放间隔：</label>
+    <input type="number" id="playInterval" value="1500" min="500" step="100" style="width: 80px;">
+    <span>毫秒</span>
+
+    <button onclick="generateAndPlay()">生成条码</button>
+</div>
+
+<div id="player-container">
+    <svg id="barcode-svg"></svg>
+    <div class="player-info" id="playerInfo">请先生成条码</div>
+</div>
+
+<div class="player-buttons">
+    <button id="prevBtn" onclick="prevBarcode()" disabled>上一张</button>
+    <button id="playBtn" onclick="togglePlay()" disabled>开始播放</button>
+    <button id="nextBtn" onclick="nextBarcode()" disabled>下一张</button>
+    <button id="downloadBtn" onclick="downloadCurrentBarcode()" disabled>下载当前条码</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script>
+    let barcodeList = [];
+    let currentIndex = 0;
+    let playTimer = null;
+    let isPlaying = false;
+
+    function generateAndPlay() {
+        stopPlay();
+
+        const input = document.getElementById('batchInput').value.trim();
+        const format = document.getElementById('barcodeFormat').value;
+
+        if (!input) {
+            alert('请输入条码内容');
+            return;
+        }
+
+        barcodeList = input.split('\n').map(item => item.trim()).filter(item => item !== '');
+
+        if (barcodeList.length === 0) {
+            alert('没有有效条码内容');
+            return;
+        }
+
+        currentIndex = 0;
+        updateBarcode(format);
+
+        document.getElementById('prevBtn').disabled = false;
+        document.getElementById('nextBtn').disabled = false;
+        document.getElementById('playBtn').disabled = false;
+        document.getElementById('downloadBtn').disabled = false;
+    }
+
+    function updateBarcode(format) {
+        if (barcodeList.length === 0) return;
+
+        const text = barcodeList[currentIndex];
+
+        try {
+            JsBarcode("#barcode-svg", text, {
+                format: format,
+                width: 2,
+                height: 80,
+                displayValue: true,
+                fontSize: 16,
+                textMargin: 8,
+                margin: 10,
+                background: "#ffffff",
+                lineColor: "#000000"
+            });
+
+            document.getElementById('playerInfo').textContent =
+                `第 ${currentIndex + 1} / ${barcodeList.length} 张：${text}`;
+        } catch (e) {
+            document.getElementById('playerInfo').textContent =
+                `第 ${currentIndex + 1} / ${barcodeList.length} 张：${text}（生成失败）`;
+        }
+    }
+
+    function prevBarcode() {
+        stopPlay();
+
+        if (barcodeList.length === 0) return;
+
+        const format = document.getElementById('barcodeFormat').value;
+
+        if (currentIndex > 0) {
+            currentIndex--;
+        } else {
+            currentIndex = barcodeList.length - 1;
+        }
+
+        updateBarcode(format);
+    }
+
+    function nextBarcode() {
+        stopPlay();
+
+        if (barcodeList.length === 0) return;
+
+        const format = document.getElementById('barcodeFormat').value;
+
+        // 如果已经是最后一张，弹出提示
+        if (currentIndex >= barcodeList.length - 1) {
+            setTimeout(() => {
+                if (confirm("已到最后一张，是否重新播放？")) {
+                    currentIndex = 0;
+                    updateBarcode(format);
+                }
+            }, 100);
+            return;
+        }
+
+        currentIndex++;
+        updateBarcode(format);
+    }
+
+    function togglePlay() {
+        if (isPlaying) {
+            stopPlay();
+        } else {
+            startPlay();
+        }
+    }
+
+    function startPlay() {
+        if (barcodeList.length <= 1) return;
+
+        isPlaying = true;
+
+        const playBtn = document.getElementById('playBtn');
+        playBtn.textContent = "暂停";
+        playBtn.classList.add("playing");
+
+        const interval = Number(document.getElementById('playInterval').value) || 1500;
+
+        const format = document.getElementById('barcodeFormat').value;
+
+        playTimer = setInterval(() => {
+            // 如果已经是最后一张，停止播放并提示
+            if (currentIndex >= barcodeList.length - 1) {
+                stopPlay();
+                setTimeout(() => {
+                    if (confirm("已全部显示完成，是否重新播放？")) {
+                        currentIndex = 0;
+                        updateBarcode(format);
+                        startPlay();
+                    }
+                }, 100);
+                return;
+            }
+            
+            currentIndex++;
+            updateBarcode(format);
+        }, interval);
+    }
+
+    function stopPlay() {
+        isPlaying = false;
+        clearInterval(playTimer);
+        playTimer = null;
+
+        const playBtn = document.getElementById('playBtn');
+        playBtn.textContent = "开始播放";
+        playBtn.classList.remove("playing");
+    }
+
+    function downloadCurrentBarcode() {
+        if (barcodeList.length === 0) return;
+
+        const svgElement = document.getElementById("barcode-svg");
+        const text = barcodeList[currentIndex];
+
+        if (!svgElement) return;
+
+        try {
+            const svgData = new XMLSerializer().serializeToString(svgElement);
+            const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(svgBlob);
+
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${text}.svg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert("下载失败，请重试");
+        }
+    }
+</script>
+
+</body>
+</html>
