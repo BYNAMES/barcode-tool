@@ -92,12 +92,7 @@
             background-color: #fd7e14;
         }
 
-        #exportPdfBtn {
-            background-color: #6f42c1;
-        }
-
-        #batchDownloadBtn:disabled,
-        #exportPdfBtn:disabled {
+        #batchDownloadBtn:disabled {
             background-color: #ccc;
         }
 
@@ -196,7 +191,6 @@
     <button id="nextBtn" onclick="nextBarcode()" disabled>下一张</button>
     <button id="downloadBtn" onclick="downloadCurrentBarcode()" disabled>下载当前</button>
     <button id="batchDownloadBtn" onclick="batchDownload()" disabled>批量下载 ZIP</button>
-    <button id="exportPdfBtn" onclick="exportToPdf()" disabled>导出 PDF</button>
 </div>
 
 <!-- 进度弹窗 -->
@@ -215,7 +209,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
 <script>
     let barcodeList = [];
@@ -251,7 +244,6 @@
         document.getElementById('playBtn').disabled = false;
         document.getElementById('downloadBtn').disabled = false;
         document.getElementById('batchDownloadBtn').disabled = false;
-        document.getElementById('exportPdfBtn').disabled = false;
     }
 
     function updateBarcode(format) {
@@ -410,7 +402,6 @@
         const progressTitle = document.getElementById('progressTitle');
         const total = barcodeList.length;
 
-        // 分批大小：每批 100 条
         const BATCH_SIZE = 100;
         const batchCount = Math.ceil(total / BATCH_SIZE);
 
@@ -423,7 +414,6 @@
                 const imgFolder = zip.folder("barcodes");
                 const start = b * BATCH_SIZE;
                 const end = Math.min(start + BATCH_SIZE, total);
-                const currentBatchSize = end - start;
 
                 for (let i = start; i < end; i++) {
                     const text = barcodeList[i];
@@ -436,7 +426,6 @@
                         console.warn(`条码 "${text}" 生成失败，已跳过`);
                     }
 
-                    // 更新进度
                     const percent = Math.round(((i + 1) / total) * 100);
                     barFill.style.width = `${percent}%`;
                     progressText.textContent = `${i + 1} / ${total}`;
@@ -446,7 +435,6 @@
                     }
                 }
 
-                // 生成当前批次的 ZIP
                 progressText.textContent = `第 ${b + 1}/${batchCount} 批，正在打包...`;
                 const content = await zip.generateAsync({ type: "blob" });
 
@@ -458,7 +446,6 @@
                 document.body.removeChild(link);
                 URL.revokeObjectURL(link.href);
 
-                // 每批之间暂停一下，让浏览器喘口气
                 if (b < batchCount - 1) {
                     progressText.textContent = `第 ${b + 1} 批已下载，3秒后继续...`;
                     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -470,103 +457,6 @@
 
         } catch (e) {
             alert("批量下载失败：" + e.message);
-            overlay.style.display = 'none';
-        }
-    }
-
-    // ============ 导出 PDF（A4 一页多码，自动分页） ============
-
-    async function exportToPdf() {
-        if (barcodeList.length === 0) {
-            alert('请先生成条码');
-            return;
-        }
-
-        const format = document.getElementById('barcodeFormat').value;
-        const overlay = document.getElementById('progressOverlay');
-        const barFill = document.getElementById('progressBarFill');
-        const progressText = document.getElementById('progressText');
-        const progressTitle = document.getElementById('progressTitle');
-        const total = barcodeList.length;
-
-        overlay.style.display = 'flex';
-        progressTitle.textContent = '正在生成 PDF...';
-        barFill.style.width = '0%';
-        progressText.textContent = `0 / ${total}`;
-
-        try {
-            const { jsPDF } = window.jspdf;
-            // A4 纸张：210mm × 297mm
-            const pdf = new jsPDF('p', 'mm', 'a4');
-            const pageWidth = 210;
-            const pageHeight = 297;
-            const margin = 10;
-
-            // 每行 3 个条码，每个条码宽 60mm，高 30mm
-            const cols = 3;
-            const barcodeW = 60;
-            const barcodeH = 30;
-            const gapX = (pageWidth - margin * 2 - barcodeW * cols) / (cols - 1);
-            const gapY = 5;
-            const rowsPerPage = Math.floor((pageHeight - margin * 2) / (barcodeH + gapY));
-
-            let currentRow = 0;
-            let currentCol = 0;
-            let pageNum = 1;
-
-            for (let i = 0; i < total; i++) {
-                const text = barcodeList[i];
-
-                // 生成条码 SVG
-                const svgData = generateBarcodeSvg(text, format);
-                const svgBase64 = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
-
-                // 计算位置
-                const x = margin + currentCol * (barcodeW + gapX);
-                const y = margin + currentRow * (barcodeH + gapY);
-
-                // 如果当前页放不下，新增一页
-                if (currentRow >= rowsPerPage) {
-                    pdf.addPage();
-                    pageNum++;
-                    currentRow = 0;
-                    currentCol = 0;
-                }
-
-                // 添加条码图片到 PDF
-                pdf.addImage(svgBase64, 'SVG', x, y, barcodeW, barcodeH);
-
-                // 在条码下方添加文字（条码内容）
-                pdf.setFontSize(8);
-                pdf.text(text, x + barcodeW / 2, y + barcodeH + 4, { align: 'center' });
-
-                // 更新进度
-                const percent = Math.round(((i + 1) / total) * 100);
-                barFill.style.width = `${percent}%`;
-                progressText.textContent = `${i + 1} / ${total}`;
-
-                // 每 20 个让出主线程
-                if ((i + 1) % 20 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 10));
-                }
-
-                // 移动到下一个位置
-                currentCol++;
-                if (currentCol >= cols) {
-                    currentCol = 0;
-                    currentRow++;
-                }
-            }
-
-            // 保存 PDF
-            progressText.textContent = '正在保存 PDF...';
-            pdf.save(`barcodes_${new Date().getTime()}.pdf`);
-
-            progressText.textContent = 'PDF 导出完成！';
-            setTimeout(() => { overlay.style.display = 'none'; }, 1500);
-
-        } catch (e) {
-            alert("PDF 导出失败：" + e.message);
             overlay.style.display = 'none';
         }
     }
